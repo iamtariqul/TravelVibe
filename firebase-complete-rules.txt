@@ -1,0 +1,135 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow users to read/write their own profile
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Listings collection rules
+    match /listings/{listingId} {
+      // READ RULES: 
+      // 1. Anyone can read listings with "active" status OR
+      // 2. Host can always read their own listings OR
+      // 3. Users in allowedViewers array can read the listing (for guests with bookings)
+      allow read: if 
+        (resource.data.status == 'active') || 
+        (request.auth != null && request.auth.uid == resource.data.hostId) ||
+        (request.auth != null && resource.data.allowedViewers != null && request.auth.uid in resource.data.allowedViewers);
+      
+      // CREATE RULE: Only authenticated users can create listings where they're the host
+      allow create: if 
+        request.auth != null && 
+        request.auth.uid == request.resource.data.hostId;
+      
+      // UPDATE/DELETE RULES: Only the host can update/delete their listings
+      allow update, delete: if 
+        request.auth != null && 
+        request.auth.uid == resource.data.hostId;
+    }
+    
+    // Reviews collection rules
+    match /reviews/{reviewId} {
+      // Anyone can read reviews
+      allow read: if true;
+      
+      // CREATE RULE: Only authenticated users can create reviews
+      // Cannot review your own property (userId != hostId)
+      allow create: if 
+        request.auth != null && 
+        request.auth.uid == request.resource.data.userId;
+      
+      // UPDATE/DELETE RULES: Only the review author can update/delete
+      allow update, delete: if 
+        request.auth != null && 
+        request.auth.uid == resource.data.userId;
+    }
+    
+    // Bookings collection rules
+    match /bookings/{bookingId} {
+      // READ RULE: Users can only read bookings where they're the guest or host
+      allow read: if 
+        request.auth != null && 
+        (request.auth.uid == resource.data.guestId || 
+         request.auth.uid == resource.data.hostId);
+      
+      // CREATE RULE: Only authenticated users can create bookings as guest
+      allow create: if 
+        request.auth != null && 
+        request.auth.uid == request.resource.data.guestId;
+      
+      // UPDATE RULE: Only the guest or host can update booking status
+      allow update: if 
+        request.auth != null && 
+        (request.auth.uid == resource.data.guestId || 
+         request.auth.uid == resource.data.hostId);
+      
+      // DELETE RULE: Only the booking creator (guest) can cancel/delete their booking
+      allow delete: if 
+        request.auth != null && 
+        request.auth.uid == resource.data.guestId;
+    }
+    
+    // Messages collection rules (if you have a messaging feature)
+    match /messages/{messageId} {
+      // READ RULE: Only sender or recipient can read messages
+      allow read: if 
+        request.auth != null && 
+        (request.auth.uid == resource.data.senderId || 
+         request.auth.uid == resource.data.recipientId);
+      
+      // CREATE RULE: Authenticated users can send messages
+      allow create: if 
+        request.auth != null && 
+        request.auth.uid == request.resource.data.senderId;
+      
+      // UPDATE/DELETE RULES: Only the message sender can update/delete
+      allow update, delete: if 
+        request.auth != null && 
+        request.auth.uid == resource.data.senderId;
+    }
+    
+    // Notifications collection rules
+    match /notifications/{notificationId} {
+      // READ RULE: Users can only read their own notifications
+      allow read: if 
+        request.auth != null && 
+        request.auth.uid == resource.data.userId;
+      
+      // CREATE RULE: Service accounts or admin can create notifications
+      // This would normally be handled by Cloud Functions
+      allow create: if request.auth != null;
+      
+      // UPDATE RULE: Users can mark their notifications as read
+      allow update: if 
+        request.auth != null && 
+        request.auth.uid == resource.data.userId;
+      
+      allow delete: if 
+        request.auth != null && 
+        request.auth.uid == resource.data.userId;
+    }
+    
+    // Favorites/Saved listings
+    match /favorites/{favoriteId} {
+      // Users can read/write their own favorites
+      allow read, write: if 
+        request.auth != null && 
+        request.auth.uid == resource.data.userId;
+    }
+    
+    // Settings/Preferences
+    match /settings/{userId} {
+      allow read, write: if 
+        request.auth != null && 
+        request.auth.uid == userId;
+    }
+    
+    // Any other collection defaults to no access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
